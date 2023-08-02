@@ -5,7 +5,10 @@ from typing import List
 import fire
 import torch
 import transformers
+import wandb as wandb
 from datasets import load_dataset
+
+from WandbTrainer import WandbTrainer
 
 """
 Unused imports:
@@ -27,8 +30,8 @@ from utils.prompter import Prompter
 
 def train(
     # model/data params
-    base_model: str = "",  # the only required argument
-    data_path: str = "yahma/alpaca-cleaned",
+    base_model: str = "openlm-research/open_llama_13b",
+    data_path: str = "",
     output_dir: str = "./lora-alpaca",
     # training hyperparams
     batch_size: int = 128,
@@ -38,7 +41,7 @@ def train(
     cutoff_len: int = 256,
     val_set_size: int = 2000,
     # lora hyperparams
-    lora_r: int = 8,
+    lora_r: int = 4,
     lora_alpha: int = 16,
     lora_dropout: float = 0.05,
     lora_target_modules: List[str] = [
@@ -46,7 +49,7 @@ def train(
         "v_proj",
     ],
     # llm hyperparams
-    train_on_inputs: bool = True,  # if False, masks out inputs in loss
+    train_on_inputs: bool = False,  # if False, masks out inputs in loss
     add_eos_token: bool = False,
     group_by_length: bool = False,  # faster, but produces an odd training loss curve
     # wandb params
@@ -56,6 +59,8 @@ def train(
     wandb_log_model: str = "",  # options: false | true
     resume_from_checkpoint: str = None,  # either training checkpoint or final adapter
     prompt_template_name: str = "alpaca",  # The prompt template to use, will default to alpaca.
+    use_custom_prompt: bool = False,
+    use_wandb: bool = False,
 ):
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:
         print(
@@ -229,7 +234,10 @@ def train(
         model.is_parallelizable = True
         model.model_parallel = True
 
-    trainer = transformers.Trainer(
+    wandb.init(project=f"Llama_lora-{base_model}_{lora_r}_{lora_alpha}_{lora_dropout}_{lora_target_modules}")
+
+    trainer = WandbTrainer(
+        wandb_logger=wandb,
         model=model,
         train_dataset=train_data,
         eval_dataset=val_data,
