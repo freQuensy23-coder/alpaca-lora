@@ -234,7 +234,7 @@ def train(
         model.is_parallelizable = True
         model.model_parallel = True
 
-    wandb.init(project=f"Llama_lora-{base_model}_{lora_r}_{lora_alpha}_{lora_dropout}".replace("\n", "_"))
+    wandb.init(project=f"Llama_lora-{base_model}_{lora_r}_{lora_alpha}_{lora_dropout}".replace("/", "_"))
 
     trainer = WandbTrainer(
         wandb_logger=wandb,
