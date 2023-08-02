@@ -13,7 +13,7 @@ class WandbTrainer(transformers.Trainer):
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         print("training_step")
         loss = super().training_step(model, inputs)
-        self.wandb_logger.log({"train_loss": loss, "lr": self.optimizer.rate})
+        self.wandb_logger.log({"train_loss": loss.item()})
 
         # Возвращаем loss
         return loss.detach() / self.args.gradient_accumulation_steps
