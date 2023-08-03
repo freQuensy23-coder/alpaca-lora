@@ -12,7 +12,7 @@ class WandbTrainer(transformers.Trainer):
 
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         loss = super().training_step(model, inputs)
-        log = {"train_loss": loss.item(), "epoch": int(self.state.epoch)}
+        log = {"train_loss": loss.item(), "epoch": int(self.state.epoch), "step": int(self.state.global_step)}
         self.wandb_logger.log(log)
         print(log)
         # Возвращаем loss
