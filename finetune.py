@@ -251,7 +251,6 @@ def train(
         model.model_parallel = True
 
     trainer = transformers.Trainer(
-        wandb_logger=wandb,
         model=model,
         train_dataset=train_data,
         eval_dataset=val_data,
