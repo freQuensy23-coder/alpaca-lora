@@ -61,6 +61,7 @@ def train(
         prompt_template_name: str = "alpaca",  # The prompt template to use, will default to alpaca.
         use_custom_prompt: bool = False,
         auto_wandb: bool = False,
+        optim:str = "adamw_torch"
 ):
     if auto_wandb:
         wandb_project = f"{base_model}".replace("/", "-")
@@ -262,7 +263,7 @@ def train(
             learning_rate=learning_rate,
             fp16=True,
             logging_steps=5,
-            optim="adamw_torch",
+            optim=optim,
             evaluation_strategy="steps" if val_set_size > 0 else "no",
             save_strategy="steps",
             eval_steps=10 if val_set_size > 0 else None,
