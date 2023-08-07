@@ -247,45 +247,68 @@ def train(
         val_data = None
 
     if not ddp and torch.cuda.device_count() > 1:
-        # keeps Trainer from trying its own DataParallelism when more than 1 gpu is available
+        # keeps Trainer from trying its own DataParalldlism when more than 1 gpu is available
         model.is_parallelizable = True
         model.model_parallel = True
 
-    if optim == "sophia":
-        from Sophia import SophiaG
-        optim = SophiaG(optimizer_grouped_parameters, lr=training_args.learning_rate, betas=(0.9, 0.999), rho=0.03)
-    if optim == "adamw_torch":
-        pass
-
-    trainer = transformers.Trainer(
-        model=model,
-        train_dataset=train_data,
-        eval_dataset=val_data,
-        args=transformers.TrainingArguments(
-            per_device_train_batch_size=micro_batch_size,
-            gradient_accumulation_steps=gradient_accumulation_steps,
-            warmup_steps=100,
-            num_train_epochs=num_epochs,
-            learning_rate=learning_rate,
-            fp16=True,
-            logging_steps=5,
-            optim=optim,
-            evaluation_strategy="steps" if val_set_size > 0 else "no",
-            save_strategy="steps",
-            eval_steps=5 if val_set_size > 0 else None,
-            save_steps=5,
-            output_dir=output_dir,
-            save_total_limit=100,
-            load_best_model_at_end=True if val_set_size > 0 else False,
-            ddp_find_unused_parameters=False if ddp else None,
-            group_by_length=group_by_length,
-            report_to="wandb" if use_wandb else None,
-            run_name=wandb_run_name if use_wandb else None,
-        ),
-        data_collator=transformers.DataCollatorForSeq2Seq(
-            tokenizer, pad_to_multiple_of=8, return_tensors="pt", padding=True
-        ),
+    training_args = transformers.TrainingArguments(
+        per_device_train_batch_size=micro_batch_size,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        warmup_steps=100,
+        num_train_epochs=num_epochs,
+        learning_rate=learning_rate,
+        fp16=True,
+        logging_steps=5,
+        optim="adamw_torch",
+        evaluation_strategy="steps" if val_set_size > 0 else "no",
+        save_strategy="steps",
+        eval_steps=5 if val_set_size > 0 else None,
+        save_steps=5,
+        output_dir=output_dir,
+        save_total_limit=100,
+        load_best_model_at_end=True if val_set_size > 0 else False,
+        ddp_find_unused_parameters=False if ddp else None,
+        group_by_length=group_by_length,
+        report_to="wandb" if use_wandb else None,
+        run_name=wandb_run_name if use_wandb else None,
     )
+
+    if optim == "sophia":
+        # https://github.com/Liuhong99/Sophia/issues/17
+        from Sophia import SophiaG
+        no_decay = ["bias", "layer_norm.weight"]
+        optimizer_grouped_parameters = [
+            {
+                "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+                "weight_decay": 1e-1,
+            },
+            {
+                "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+                "weight_decay": 0.0,
+            },
+        ]
+        optimizer = SophiaG(optimizer_grouped_parameters, lr=training_args.learning_rate, betas=(0.9, 0.999), rho=0.03)
+
+        trainer = transformers.Trainer(
+            model=model,
+            train_dataset=train_data,
+            eval_dataset=val_data,
+            args=training_args,
+            data_collator=transformers.DataCollatorForSeq2Seq(
+                tokenizer, pad_to_multiple_of=8, return_tensors="pt", padding=True
+            ),
+            optimizers=(optimizer, None,)
+        )
+    else:
+        trainer = transformers.Trainer(
+            model=model,
+            train_dataset=train_data,
+            eval_dataset=val_data,
+            args=training_args,
+            data_collator=transformers.DataCollatorForSeq2Seq(
+                tokenizer, pad_to_multiple_of=8, return_tensors="pt", padding=True
+            ))
+
     model.config.use_cache = False
 
     old_state_dict = model.state_dict
