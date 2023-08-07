@@ -61,7 +61,7 @@ def train(
         prompt_template_name: str = "alpaca",  # The prompt template to use, will default to alpaca.
         use_custom_prompt: bool = False,
         auto_wandb: bool = False,
-        optim:str = "adamw_torch"
+        optim: str = "adamw_torch"
 ):
     if auto_wandb:
         wandb_project = f"{base_model}".replace("/", "-")
@@ -250,6 +250,12 @@ def train(
         # keeps Trainer from trying its own DataParallelism when more than 1 gpu is available
         model.is_parallelizable = True
         model.model_parallel = True
+
+    if optim == "sophia":
+        from Sophia import SophiaG
+        optim = SophiaG(optimizer_grouped_parameters, lr=training_args.learning_rate, betas=(0.9, 0.999), rho=0.03)
+    if optim == "adamw_torch":
+        pass
 
     trainer = transformers.Trainer(
         model=model,
