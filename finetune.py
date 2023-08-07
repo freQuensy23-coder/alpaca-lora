@@ -1,5 +1,6 @@
 import os
 import sys
+import warnings
 from typing import List
 
 import fire
@@ -275,7 +276,10 @@ def train(
 
     if optim == "sophia":
         # https://github.com/Liuhong99/Sophia/issues/17
-        from Sophia import SophiaG
+        try:
+            from Sophia.sophia import SophiaG
+        except ImportError:
+            warnings.warn("You should clone sophia repo from https://github.com/Liuhong99/Sophia to project folder to use sophia")
         no_decay = ["bias", "layer_norm.weight"]
         optimizer_grouped_parameters = [
             {

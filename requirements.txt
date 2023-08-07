@@ -80,6 +80,7 @@ parso==0.8.3
 pathspec==0.11.2
 pathtools==0.1.2
 git+https://github.com/huggingface/peft.git@e536616888d51b453ed354a6f1e243fecb02ea08
+# https://github.com/tloen/alpaca-lora/issues/293
 pexpect==4.8.0
 pickleshare==0.7.5
 Pillow==10.0.0
@@ -112,7 +113,6 @@ setproctitle==1.3.2
 six==1.16.0
 smmap==5.0.0
 sniffio==1.3.0
-Sophia-Optimizer==0.2.1
 stack-data==0.6.2
 starlette==0.27.0
 sympy==1.12
