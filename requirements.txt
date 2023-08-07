@@ -79,7 +79,7 @@ pandas==2.0.3
 parso==0.8.3
 pathspec==0.11.2
 pathtools==0.1.2
-peft==0.4.0
+git+https://github.com/huggingface/peft.git@e536616888d51b453ed354a6f1e243fecb02ea08
 pexpect==4.8.0
 pickleshare==0.7.5
 Pillow==10.0.0
