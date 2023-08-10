@@ -3,7 +3,9 @@ import sys
 import warnings
 from typing import List
 
+import datasets
 import fire
+import pandas as pd
 import torch
 import transformers
 import wandb as wandb
@@ -210,9 +212,85 @@ def train(
     model = get_peft_model(model, config)
 
     if data_path.endswith(".json") or data_path.endswith(".jsonl"):  #
-        data = load_dataset("json", data_files=data_path)
+        raise NotImplementedError("JSON loading not implemented yet")
     else:
-        data = load_dataset(data_path)
+        train_df_parts = [
+            datasets.load_dataset(
+                "tq-still/still-llm-labeling",
+                data_files="still_ds_labeling_v1.json.gz",
+                use_auth_token=True,
+                split='train',
+            ).to_pandas(),
+            datasets.load_dataset(
+                "tq-still/still-llm-labeling",
+                data_files="still_ds_labeling_v2.json.gz",
+                use_auth_token=True,
+                split='train',
+            ).to_pandas(),
+            datasets.load_dataset(
+                "tq-still/still-llm-labeling",
+                data_files="still_ds_labeling_v3.json.gz",
+                use_auth_token=True,
+                split='train',
+            ).to_pandas(),
+            datasets.load_dataset(
+                "tq-still/still-llm-labeling",
+                data_files="still_ds_labeling_v4.json.gz",
+                use_auth_token=True,
+                split='train',
+            ).to_pandas(),
+        ]
+        train_df = pd.concat(train_df_parts, ignore_index=True)
+
+        train_df = train_df.groupby('q_id', group_keys=False).apply(
+            lambda q_df: q_df.nlargest(2, 'mean_rating')
+        ).drop_duplicates(subset=['q_id', 'hypothesis']).reset_index(drop=True)
+
+        relevant_columns = ['dialog_id', 'q_id', 'hypothesis', 'context']
+
+        train_skill_prompts = pd.read_json('skill_prompts.json').reset_index(drop=True)
+        train_skill_prompts = train_skill_prompts.rename(columns={'bloom_prompt': 'context'})
+        train_skill_prompts = train_skill_prompts[['q_id', 'context']]
+
+        train_df = train_df.merge(train_skill_prompts, on='q_id')[relevant_columns]
+
+        test_dialogs_ids = [
+            '0abf5da615c94838af2221e89fd076b8',
+            'deedc0a0f7e64c7fa1cd7b916b215df4',
+            'ba3739ffb8fc4b2a82f4838810cd16d8',
+            '1bf15c29e7fc46a98d1fef797b5d0956',
+            '2f52f6482af04852ab785156eb1336b7',
+            '3100792bb4184ed4b62e3d7208a96a01',
+            '0fbfc8a3f48d4a1d99d6cab0ef04d2f5',
+            '16d8de033dca4f6d9c1dfb01581358f9',
+            '42eb2981c76546e6a2786ebd0ece5eb9',
+            'f364d289f3af4f95a6ac542eaf1b88bd',
+        ]
+
+        test_dialogs_mask = train_df['dialog_id'].isin(test_dialogs_ids)
+
+        test_df = train_df[test_dialogs_mask]
+        train_df = train_df[~test_dialogs_mask]
+
+        val_dialogs_ids = [
+            '029886841f1142e5b75fec7d80c3b95a',
+            '7565fbfda0fb495e99adddafa5269b31',
+            'd044f44749f24993a7f084ce709b28e6',
+            'd044f44749f24993a7f084ce709b28e6',
+            'c4c35cadf93f48d19bcb2c74fe812fdd',
+        ]
+        val_dialogs_mask = train_df['dialog_id'].isin(val_dialogs_ids)
+
+        val_df = train_df[val_dialogs_mask]
+        train_df = train_df[~val_dialogs_mask]
+
+        dataset_size = len(train_df) + len(val_df) + len(test_df)
+
+        print(
+            f"Train: {len(train_df) / dataset_size * 100:.1f}%\n"
+            f"Val: {len(val_df) / dataset_size * 100:.1f}%\n"
+            f"Test: {len(test_df) / dataset_size * 100:.1f}%"
+        )
 
     if resume_from_checkpoint:
         # Check the available weights and load them
@@ -236,40 +314,7 @@ def train(
 
     model.print_trainable_parameters()  # Be more transparent about the % of trainable params.
 
-    train_df = data["train"].to_pandas()
-    test_dialogs_ids = [
-        '0abf5da615c94838af2221e89fd076b8',
-        'deedc0a0f7e64c7fa1cd7b916b215df4',
-        'ba3739ffb8fc4b2a82f4838810cd16d8',
-        '1bf15c29e7fc46a98d1fef797b5d0956',
-        '2f52f6482af04852ab785156eb1336b7',
-        '3100792bb4184ed4b62e3d7208a96a01',
-        '0fbfc8a3f48d4a1d99d6cab0ef04d2f5',
-        '16d8de033dca4f6d9c1dfb01581358f9',
-        '42eb2981c76546e6a2786ebd0ece5eb9',
-        'f364d289f3af4f95a6ac542eaf1b88bd',
-    ]
-    val_dialogs_ids = [
-        '029886841f1142e5b75fec7d80c3b95a',
-        '7565fbfda0fb495e99adddafa5269b31',
-        'd044f44749f24993a7f084ce709b28e6',
-        'd044f44749f24993a7f084ce709b28e6',
-        'c4c35cadf93f48d19bcb2c74fe812fdd',
-    ]
-    val_dialogs_mask = train_df['dialog_id'].isin(val_dialogs_ids)
 
-    val_df = train_df[val_dialogs_mask]
-    train_df = train_df[~val_dialogs_mask]
-    test_dialogs_mask = train_df['dialog_id'].isin(test_dialogs_ids)
-    test_df = train_df[test_dialogs_mask]
-    train_df = train_df[~test_dialogs_mask]
-    dataset_size = len(train_df) + len(val_df) + len(test_df)
-
-    print(
-        f"Train: {len(train_df) / dataset_size * 100:.1f}%\n"
-        f"Val: {len(val_df) / dataset_size * 100:.1f}%\n"
-        f"Test: {len(test_df) / dataset_size * 100:.1f}%"
-    )
 
     # Generate dataset from pandas dataframe
     train_data = Dataset.from_pandas(train_df).shuffle().map(generate_and_tokenize_prompt)
