@@ -24,7 +24,7 @@ from peft import (
     prepare_model_for_int8_training,
     set_peft_model_state_dict,
 )
-from transformers import LlamaForCausalLM, LlamaTokenizer
+from transformers import LlamaForCausalLM, LlamaTokenizer, EarlyStoppingCallback
 
 from utils.prompter import Prompter
 
@@ -62,11 +62,12 @@ def train(
         prompt_template_name: str = "alpaca",  # The prompt template to use, will default to alpaca.
         use_custom_prompt: bool = False,
         auto_wandb: bool = False,
-        optim: str = "adamw_torch"
+        optim: str = "adamw_torch",
+        early_stopping: bool = False,
 ):
     if auto_wandb:
         wandb_project = f"{base_model}".replace("/", "-")
-        wandb_run_name = f"{wandb_project}-{lora_r}--{lora_alpha}-{lora_dropout}"
+        wandb_run_name = f"{wandb_project}-{lora_r}-{lora_alpha}-{lora_dropout}"
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:
         print(
             f"Training Alpaca-LoRA model with params:\n"
@@ -93,6 +94,9 @@ def train(
             f"resume_from_checkpoint: {resume_from_checkpoint or False}\n"
             f"prompt template: {prompt_template_name}\n"
             f"use_custom_prompt: {use_custom_prompt}\n"
+            f"auto_wandb: {auto_wandb}\n"
+            f"optim: {optim}\n"
+            f"early_stopping: {early_stopping}\n"
         )
     assert (
         base_model
@@ -312,6 +316,9 @@ def train(
             data_collator=transformers.DataCollatorForSeq2Seq(
                 tokenizer, pad_to_multiple_of=8, return_tensors="pt", padding=True
             ))
+
+    if early_stopping:
+        trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=20, early_stopping_threshold=0.01))
 
     model.config.use_cache = False
 
