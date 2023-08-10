@@ -214,7 +214,7 @@ def train(
     if data_path.endswith(".json") or data_path.endswith(".jsonl"):  #
         raise NotImplementedError("JSON loading not implemented yet")
     else:
-        train_df_parts = [
+        train_df_parts = [  # TODO REFACTOR!
             datasets.load_dataset(
                 "tq-still/still-llm-labeling",
                 data_files="still_ds_labeling_v1.json.gz",
@@ -253,6 +253,7 @@ def train(
         train_skill_prompts = train_skill_prompts[['q_id', 'context']]
 
         train_df = train_df.merge(train_skill_prompts, on='q_id')[relevant_columns]
+        train_df.rename({"context": "instruction", "hypothesis": "output"})
 
         test_dialogs_ids = [
             '0abf5da615c94838af2221e89fd076b8',
@@ -314,8 +315,6 @@ def train(
 
     model.print_trainable_parameters()  # Be more transparent about the % of trainable params.
 
-
-
     # Generate dataset from pandas dataframe
     train_data = Dataset.from_pandas(train_df).shuffle().map(generate_and_tokenize_prompt)
     val_data = Dataset.from_pandas(val_df).shuffle().map(generate_and_tokenize_prompt)
@@ -354,7 +353,8 @@ def train(
         try:
             from Sophia.sophia import SophiaG
         except ImportError:
-            raise ImportError("Can't import sophia. You should clone sophia repo from https://github.com/Liuhong99/Sophia to project folder to use sophia")
+            raise ImportError(
+                "Can't import sophia. You should clone sophia repo from https://github.com/Liuhong99/Sophia to project folder to use sophia")
         optimizer = SophiaG(model.parameters(), lr=training_args.learning_rate, betas=(0.9, 0.999), rho=0.03)
 
         trainer = transformers.Trainer(
