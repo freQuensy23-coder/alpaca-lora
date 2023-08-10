@@ -253,7 +253,7 @@ def train(
         train_skill_prompts = train_skill_prompts[['q_id', 'context']]
 
         train_df = train_df.merge(train_skill_prompts, on='q_id')[relevant_columns]
-        train_df.rename({"context": "instruction", "hypothesis": "output"})
+        train_df.rename({"context": "instruction", "hypothesis": "output"}, inplace=True)
 
 
         test_dialogs_ids = [
