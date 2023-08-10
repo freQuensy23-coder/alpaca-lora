@@ -7,7 +7,7 @@ import fire
 import torch
 import transformers
 import wandb as wandb
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 
 from WandbTrainer import WandbTrainer
 
@@ -40,7 +40,6 @@ def train(
         num_epochs: int = 3,
         learning_rate: float = 3e-4,
         cutoff_len: int = 256,
-        val_set_size: int = 2000,
         # lora hyperparams
         lora_r: int = 4,
         lora_alpha: int = 16,
@@ -65,6 +64,7 @@ def train(
         optim: str = "adamw_torch",
         early_stopping: bool = False,
 ):
+    global SophiaG
     if auto_wandb:
         wandb_project = f"{base_model}".replace("/", "-")
         wandb_run_name = f"{wandb_project}-{lora_r}-{lora_alpha}-{lora_dropout}"
@@ -79,7 +79,6 @@ def train(
             f"num_epochs: {num_epochs}\n"
             f"learning_rate: {learning_rate}\n"
             f"cutoff_len: {cutoff_len}\n"
-            f"val_set_size: {val_set_size}\n"
             f"lora_r: {lora_r}\n"
             f"lora_alpha: {lora_alpha}\n"
             f"lora_dropout: {lora_dropout}\n"
@@ -237,22 +236,49 @@ def train(
 
     model.print_trainable_parameters()  # Be more transparent about the % of trainable params.
 
-    if val_set_size > 0:
-        train_val = data["train"].train_test_split(
-            test_size=val_set_size, shuffle=True, seed=42
-        )
-        train_data = (
-            train_val["train"].shuffle().map(generate_and_tokenize_prompt)
-        )
-        val_data = (
-            train_val["test"].shuffle().map(generate_and_tokenize_prompt)
-        )
-    else:
-        train_data = data["train"].shuffle().map(generate_and_tokenize_prompt)
-        val_data = None
+    train_df = data["train"].to_pandas()
+    test_dialogs_ids = [
+        '0abf5da615c94838af2221e89fd076b8',
+        'deedc0a0f7e64c7fa1cd7b916b215df4',
+        'ba3739ffb8fc4b2a82f4838810cd16d8',
+        '1bf15c29e7fc46a98d1fef797b5d0956',
+        '2f52f6482af04852ab785156eb1336b7',
+        '3100792bb4184ed4b62e3d7208a96a01',
+        '0fbfc8a3f48d4a1d99d6cab0ef04d2f5',
+        '16d8de033dca4f6d9c1dfb01581358f9',
+        '42eb2981c76546e6a2786ebd0ece5eb9',
+        'f364d289f3af4f95a6ac542eaf1b88bd',
+    ]
+    val_dialogs_ids = [
+        '029886841f1142e5b75fec7d80c3b95a',
+        '7565fbfda0fb495e99adddafa5269b31',
+        'd044f44749f24993a7f084ce709b28e6',
+        'd044f44749f24993a7f084ce709b28e6',
+        'c4c35cadf93f48d19bcb2c74fe812fdd',
+    ]
+    val_dialogs_mask = train_df['dialog_id'].isin(val_dialogs_ids)
+
+    val_df = train_df[val_dialogs_mask]
+    train_df = train_df[~val_dialogs_mask]
+    test_dialogs_mask = train_df['dialog_id'].isin(test_dialogs_ids)
+    test_df = train_df[test_dialogs_mask]
+    train_df = train_df[~test_dialogs_mask]
+    dataset_size = len(train_df) + len(val_df) + len(test_df)
+
+    print(
+        f"Train: {len(train_df) / dataset_size * 100:.1f}%\n"
+        f"Val: {len(val_df) / dataset_size * 100:.1f}%\n"
+        f"Test: {len(test_df) / dataset_size * 100:.1f}%"
+    )
+
+    # Generate dataset from pandas dataframe
+    train_data = Dataset.from_pandas(train_df).shuffle().map(generate_and_tokenize_prompt)
+    val_data = Dataset.from_pandas(val_df).shuffle().map(generate_and_tokenize_prompt)
+    test_data = Dataset.from_pandas(test_df).shuffle().map(generate_and_tokenize_prompt)
 
     if not ddp and torch.cuda.device_count() > 1:
         # keeps Trainer from trying its own DataParalldlism when more than 1 gpu is available
+        print("[WARNING] More than 1 GPU, turn on DDP")
         model.is_parallelizable = True
         model.model_parallel = True
 
@@ -265,13 +291,13 @@ def train(
         fp16=True,
         logging_steps=5,
         optim="adamw_torch",
-        evaluation_strategy="steps" if val_set_size > 0 else "no",
+        evaluation_strategy="steps",
         save_strategy="steps",
-        eval_steps=5 if val_set_size > 0 else None,
+        eval_steps=5,
         save_steps=5,
         output_dir=output_dir,
         save_total_limit=100,
-        load_best_model_at_end=True if val_set_size > 0 else False,
+        load_best_model_at_end=True,
         ddp_find_unused_parameters=False if ddp else None,
         group_by_length=group_by_length,
         report_to="wandb" if use_wandb else None,
@@ -283,19 +309,8 @@ def train(
         try:
             from Sophia.sophia import SophiaG
         except ImportError:
-            warnings.warn("You should clone sophia repo from https://github.com/Liuhong99/Sophia to project folder to use sophia")
-        no_decay = ["bias", "layer_norm.weight"]
-        optimizer_grouped_parameters = [
-            {
-                "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-                "weight_decay": 1e-1,
-            },
-            {
-                "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
-                "weight_decay": 0.0,
-            },
-        ]
-        optimizer = SophiaG(optimizer_grouped_parameters, lr=training_args.learning_rate, betas=(0.9, 0.999), rho=0.03)
+            raise ImportError("Can't import sophia. You should clone sophia repo from https://github.com/Liuhong99/Sophia to project folder to use sophia")
+        optimizer = SophiaG(model.parameters(), lr=training_args.learning_rate, betas=(0.9, 0.999), rho=0.03)
 
         trainer = transformers.Trainer(
             model=model,
